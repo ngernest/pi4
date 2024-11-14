@@ -48,7 +48,11 @@ let chomp_t1 (expr : Expression.t) (bind : Syntax.var) (b0 : int) =
   | ArithExpr e -> ArithExpr (chomp_t1_arith bind b0 e)
   | BvExpr e -> BvExpr (chomp_t1_bv bind b0 e)
 
-let rec chomp_e1 (expr : Formula.t) (binder : var) (b0 : int) =
+(* [chomp_e1] is chomp₁ᵠ in the paper, which is a version of [chomp1]
+   that is used to update each occurrence of [pkt_in] in a refinement
+   if that occurence describes the first bit of [pkt_in] of a heap 
+    in the semantics of the heap type *)  
+let rec chomp_e1 (expr : Formula.t) (binder : var) (b0 : int) : Formula.t =
   match expr with
   | Eq (t1, t2) -> Eq (chomp_t1 t1 binder b0, chomp_t1 t2 binder b0)
   | Gt (t1, t2) -> Gt (chomp_t1 t1 binder b0, chomp_t1 t2 binder b0)
@@ -58,7 +62,7 @@ let rec chomp_e1 (expr : Formula.t) (binder : var) (b0 : int) =
   | Neg e -> Neg (chomp_e1 e binder b0)
   | (True | False | IsValid (_, _)) as e -> e
 
-and chomp_ref1 (hty : HeapType.t) binder b0 =
+and chomp_ref1 (hty : HeapType.t) (binder : var) (b0 :int) : Formula.t =
   match hty with
   | Sigma (x, hty1, hty2) ->
     Sigma (x, chomp_ref1 hty1 binder b0, chomp_ref1 hty2 (binder + 1) b0)
@@ -72,7 +76,7 @@ and chomp_ref1 (hty : HeapType.t) binder b0 =
     Substitution (hty1', x, hty2')
   | (Nothing | Top) as hty' -> hty'
 
-let rec chomp1 (hty : HeapType.t) ctx b0 =
+let rec chomp1 (hty : HeapType.t) (ctx : Env.context) (b0 : int) : HeapType.t =
   match hty with
   | Sigma (x, hty1, hty2) ->
     let left = Sigma (x, chomp1 hty1 ctx b0, chomp_ref1 hty2 0 b0) in
@@ -86,6 +90,8 @@ let rec chomp1 (hty : HeapType.t) ctx b0 =
   | Choice (hty1, hty2) -> Choice (chomp1 hty1 ctx b0, chomp1 hty2 ctx b0)
   | Refinement (x, hty, e) -> Refinement (x, chomp1 hty ctx b0, chomp_e1 e 0 b0)
   | Substitution (hty1, x, hty2) ->
+    (* For substitution types, only [hty1] is chomped, 
+       as [hty2] only contains information relevant for evaluating refinements *)
     let ctx' = Env.add_binding ctx x (Env.VarBind hty2) in
     let hty1' = chomp1 hty1 ctx' b0 in
     Substitution (hty1', x, hty2)
