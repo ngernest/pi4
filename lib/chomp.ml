@@ -48,10 +48,11 @@ let chomp_t1 (expr : Expression.t) (bind : Syntax.var) (b0 : int) =
   | ArithExpr e -> ArithExpr (chomp_t1_arith bind b0 e)
   | BvExpr e -> BvExpr (chomp_t1_bv bind b0 e)
 
-(* [chomp_e1] is chomp₁ᵠ in the paper, which is a version of [chomp1]
-   that is used to update each occurrence of [pkt_in] in a refinement
-   if that occurence describes the first bit of [pkt_in] of a heap 
-    in the semantics of the heap type *)  
+(* [chomp_e1] is chomp₁ᵠ in the paper.
+   - [chomp_e1] is a version of [chomp1]
+     that is used to update each occurrence of [pkt_in] in a refinement
+     if that occurence describes the first bit of [pkt_in] of a heap 
+     in the semantics of the heap type *)  
 let rec chomp_e1 (expr : Formula.t) (binder : var) (b0 : int) : Formula.t =
   match expr with
   | Eq (t1, t2) -> Eq (chomp_t1 t1 binder b0, chomp_t1 t2 binder b0)
@@ -79,16 +80,25 @@ and chomp_ref1 (hty : HeapType.t) (binder : var) (b0 :int) : Formula.t =
 let rec chomp1 (hty : HeapType.t) (ctx : Env.context) (b0 : int) : HeapType.t =
   match hty with
   | Sigma (x, hty1, hty2) ->
+    (* 1st case: input packet described by [hty1] contains >= 1 bit 
+       - In this case, we remove a bit from [hty1], and update all references to 
+         [x.pkt_in] in [hty2] (since [hty1] is bound to [x] in [hty2]) using 
+         [chomp_ref1] *)
     let left = Sigma (x, chomp1 hty1 ctx b0, chomp_ref1 hty2 0 b0) in
     let ctx' = Env.add_binding ctx x (Env.VarBind hty1) in
+    (* 2nd case: input packet described by [hty1] is empty
+       - In this case, we need to remove the first bit of [pkt_in] in [hty2] *)
     let right =
+      (* We assert that [pkt_in] of [hty1] must be empty *)
       let ref = Eq (ArithExpr (Length (0, PktIn)), ArithExpr (Num 0)) in
       let y = Env.pick_fresh_name ctx' x in
       Sigma (x, Refinement (y, hty1, ref), chomp1 hty2 ctx' b0)
     in
     Choice (left, right)
   | Choice (hty1, hty2) -> Choice (chomp1 hty1 ctx b0, chomp1 hty2 ctx b0)
-  | Refinement (x, hty, e) -> Refinement (x, chomp1 hty ctx b0, chomp_e1 e 0 b0)
+  | Refinement (x, hty, e) -> 
+    (* To chomp a refinement, chomp both the heap type and the predicate *)
+    Refinement (x, chomp1 hty ctx b0, chomp_e1 e 0 b0)
   | Substitution (hty1, x, hty2) ->
     (* For substitution types, only [hty1] is chomped, 
        as [hty2] only contains information relevant for evaluating refinements *)
